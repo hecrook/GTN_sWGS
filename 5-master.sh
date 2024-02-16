@@ -7,4 +7,4 @@
 #SBATCH --mail-user=hannah.crook@icr.ac.uk
 #SBATCH --mail-type=ALL
 
-srun nextflow 5-GTN_sWGS.nf -resume
+srun nextflow hg19-GTN_sWGS.nf -resume

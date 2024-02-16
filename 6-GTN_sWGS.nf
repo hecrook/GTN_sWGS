@@ -124,7 +124,7 @@ process QDNASEQ {
     cpus 16
     memory '16000 MB'
     conda '/home/hcrook/.conda/envs/qdnaseq'
-    publishDir "$projectDir/results/qdnaseq"
+    publishDir "$projectDir/results/qdnaseq_500kb"
 
     input:
     path bamfiles
@@ -137,7 +137,7 @@ process QDNASEQ {
 
     script:
     """
-    QDNAseq_100kb.R "${bamfiles}"
+    QDNAseq_500kb.R "${bamfiles}"
     """
 }
 
