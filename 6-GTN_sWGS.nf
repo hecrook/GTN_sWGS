@@ -6,20 +6,22 @@ params.reads = "$projectDir/sWGS/fastq/*_{R1,R2}.fq.gz"
 params.index = "/data/reference-data/iGenomes/Homo_sapiens/Ensembl/GRCh37/Sequence/BWAIndex/"
 params.outdir = "$projectDir/results"
 params.adap = "$projectDir/TruSeq3-PE-2.fa"
+params.binsize = "30"
 
 log.info """\
     s W G S - N F   P I P E L I N E
     ===================================
-    index       : ${params.index}
+    index        : ${params.index}
     reads        : ${params.reads}
     outdir       : ${params.outdir}
+    binsize      : ${params.binsize}
     """
     .stripIndent()
 
 process FASTQC_RAW {
     conda 'fastqc'
     input:
-    tuple val(sample_id), path(reads)
+    tuple val(sample_id), path(reads) 
 
     output:
     path "${sample_id}_fastqc"
@@ -74,6 +76,8 @@ process FASTQC_TRIM {
 }
 
 process MULTIQC_TRIM {
+    cpus 2
+    memory '8000 MB'
     publishDir "$projectDir/results/multiqc", mode:'copy'
     conda 'multiqc'
     input:
@@ -124,10 +128,11 @@ process QDNASEQ {
     cpus 16
     memory '16000 MB'
     conda '/home/hcrook/.conda/envs/qdnaseq'
-    publishDir "$projectDir/results/qdnaseq_500kb"
+    publishDir "$projectDir/results/qdnaseq/${params.binsize}_kb"
 
     input:
     path bamfiles
+    val binsize
 
     output:
     path "*.RData"
@@ -137,7 +142,7 @@ process QDNASEQ {
 
     script:
     """
-    QDNAseq_500kb.R "${bamfiles}"
+    QDNAseq_500kb.R "${bamfiles}" "${binsize}"
     """
 }
 
@@ -154,5 +159,5 @@ workflow {
     MULTIQC_TRIM(fastqc_raw_ch.mix(fastqc_trim_ch).collect())
     align_ch = ALIGN(index_ch.first(), trim_ch)
     align_ch.bamfile.view()
-    QDNASEQ(align_ch.bamfile.collect())
+    QDNASEQ(align_ch.bamfile.collect(), params.binsize)
 }
