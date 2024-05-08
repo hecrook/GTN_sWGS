@@ -27,3 +27,8 @@ This is a pipeline to obtain relative copy number from fastq files from sWGS. Th
 
 ### QDNASeq
 Two customised scripts for QDNASeq can be found in /bin (QDNAseq.R QDNAseq_sexChrIncl.R). These have been made using the QDNASeq vignette available [here](https://bioconductor.org/packages/release/bioc/vignettes/QDNAseq/inst/doc/QDNAseq.pdf)
+
+### Run it
+The main script is in `8-GTN_sWGS.nf`. You will also need `bin/QDNAseq.R` and `bin/QDNAseq_sexChrIncl.R` which must be executable, use `chmod +x` to do this.
+
+Depending on the cluster, the way the main script is executed will be different. `nextflow.config` was made to be compatible with ICR alma. 
