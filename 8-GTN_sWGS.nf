@@ -3,7 +3,21 @@
  */
 
 params.reads = "$projectDir/sWGS/fastq/*_{R1,R2}.fq.gz"
-params.index = "/data/reference-data/iGenomes/Homo_sapiens/Ensembl/GRCh37/Sequence/BWAIndex/"
+params.genome = ""
+if ( params.genome == "hg38" ) {
+        params.index = "/data/reference-data/iGenomes/Homo_sapiens/GATK/GRCh38/Sequence/BWAIndex/"
+    }
+else {
+    if ( params.genome == "hg19" ) {
+    params.index = "/data/reference-data/iGenomes/Homo_sapiens/Ensembl/GRCh37/Sequence/BWAIndex/"
+    }
+    else {
+        exit("""
+        ERROR!! 
+        Either no, or invalid genome has been specified. Please choose from options hg19 or hg38
+        """)
+    }
+}
 params.outdir = "$projectDir/results"
 params.adap = "$projectDir/bin/TruSeq3-PE-2.fa"
 params.binsize = "30"
@@ -13,14 +27,18 @@ params.sexChrIncl = false
 log.info """\
     s W G S - N F   P I P E L I N E
     ===================================
+    genome      : ${params.genome}
     index       : ${params.index}
     reads        : ${params.reads}
     outdir       : ${params.outdir}
+    sexchr?      : ${params.sexChrIncl}
     binsize      : ${params.binsize}
     """
     .stripIndent()
 
 process FASTQC_RAW {
+    cpus 1
+    memory '8000 MB'
     conda 'fastqc'
     publishDir "$projectDir/results/fastqc/raw", mode:'copy'
     input:
@@ -38,6 +56,8 @@ process FASTQC_RAW {
 }
 
 process TRIMMOMATIC {
+    cpus 1
+    memory '8000 MB'
     publishDir "$projectDir/results/trimmomatic", mode:'copy'
     conda 'trimmomatic'
     input:
@@ -62,6 +82,8 @@ process TRIMMOMATIC {
 }
 
 process FASTQC_TRIM {
+    cpus 1
+    memory '8000 MB'
     publishDir "$projectDir/results/fastqc/trimmed", mode:'copy'
     conda 'fastqc'
     input:
@@ -80,7 +102,7 @@ process FASTQC_TRIM {
 
 process MULTIQC_TRIM {
     publishDir "$projectDir/results/multiqc", mode:'copy'
-    conda 'multiqc'
+    container "$projectDir/multiqc-1.20.sif"
     input:
     path "*"
 
@@ -98,7 +120,7 @@ process ALIGN {
     cpus 24
     memory '16000 MB'
     conda 'bwa samtools qualimap'
-    publishDir "$projectDir/results/align/hg19", mode: 'copy'
+    publishDir "$projectDir/results/align/${params.genome}", mode: 'copy'
     input:
     path index
     tuple val(sample_id), path(trimreads)
@@ -106,21 +128,25 @@ process ALIGN {
     output:
     path "${sample_id}_sorted.bam", emit: bamfile
     path "${sample_id}_sorted.bam.bai"
-    path "${sample_id}_qualimap_results/"
+
 
     script:
     """
 
     INDEX=`find -L BWAIndex/ -maxdepth 1 -name "*.amb" | sed 's/\\.amb\$//'`
+    echo -e "\nAligning ..."
     bwa mem  -M -t $task.cpus \$INDEX ${trimreads[0]} ${trimreads[1]} > ${sample_id}.sam
-
+    echo -e "\nConverting sam to bam ..."
     samtools view -S -b ${sample_id}.sam > ${sample_id}.bam
+    echo -e "\nSorting bam files ..."
     samtools sort ${sample_id}.bam -o ${sample_id}_sorted.bam
+    echo -e "\nIndexing bam files ..."
     samtools index ${sample_id}_sorted.bam
+    echo -e "\nFinished indexing"
+    
+    # mkdir -p ${sample_id}_qualimap_results
 
-    mkdir -p ${sample_id}_qualimap_results
-
-    qualimap bamqc -bam ${sample_id}_sorted.bam -outdir ${sample_id}_qualimap_results --paint-chromosome-limits --genome-gc-distr HUMAN --collect-overlap-pairs -outformat HTML
+    # qualimap bamqc -bam ${sample_id}_sorted.bam -outdir ${sample_id}_qualimap_results --paint-chromosome-limits --genome-gc-distr HUMAN --collect-overlap-pairs -outformat HTML
 
     """
 }
@@ -182,10 +208,13 @@ workflow {
     MULTIQC_TRIM(fastqc_raw_ch.mix(fastqc_trim_ch).collect())
     align_ch = ALIGN(index_ch.first(), trim_ch)
     align_ch.bamfile.view()
-    if ( params.sexChrIncl ) {
-        QDNASEQSEX(align_ch.bamfile.collect(), params.binsize)
-    }
-    else {
-        QDNASEQ(align_ch.bamfile.collect(), params.binsize)
-    }
+    if ( params.genome == "hg19" ) {
+        if ( params.sexChrIncl ) {
+            QDNASEQSEX(align_ch.bamfile.collect(), params.binsize)
+        }
+        else {
+            QDNASEQ(align_ch.bamfile.collect(), params.binsize)
+        }
+    } else {}
+
 }
