@@ -7,4 +7,4 @@
 #SBATCH --mail-user=hannah.crook@icr.ac.uk
 #SBATCH --mail-type=ALL
 
-srun nextflow 8-GTN_sWGS.nf -resume --binsize 500 --genome hg38
+srun nextflow main.nf --binsize 500 --genome hg38 --input GTN2022_sWGS_samplesheet_batch02.csv

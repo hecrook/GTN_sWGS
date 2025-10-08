@@ -1,8 +1,10 @@
+include { samplesheetToList } from 'plugin/nf-schema'
+
 /*
  * Gestational sWGS input parameters
  */
 
-params.reads = "$projectDir/sWGS/fastq/*_{R1,R2}.fq.gz"
+params.input = ""
 params.genome = ""
 if ( params.genome == "hg38" ) {
         params.index = "/data/reference-data/iGenomes/Homo_sapiens/GATK/GRCh38/Sequence/BWAIndex/"
@@ -27,9 +29,9 @@ params.sexChrIncl = false
 log.info """\
     s W G S - N F   P I P E L I N E
     ===================================
-    genome      : ${params.genome}
-    index       : ${params.index}
-    reads        : ${params.reads}
+    genome       : ${params.genome}
+    index        : ${params.index}
+    samplesheet  : ${params.input}
     outdir       : ${params.outdir}
     sexchr?      : ${params.sexChrIncl}
     binsize      : ${params.binsize}
@@ -42,15 +44,15 @@ process FASTQC_RAW {
     conda 'fastqc'
     publishDir "$projectDir/results/fastqc/raw", mode:'copy'
     input:
-    tuple val(sample_id), path(reads)
+    tuple val(meta), path(fastq1), path(fastq2)
 
     output:
-    path "${sample_id}_fastqc"
+    path "${meta.sample}_fastqc"
 
     script:
     """
-    mkdir "${sample_id}_fastqc"
-    fastqc -o ${sample_id}_fastqc -f fastq ${reads}
+    mkdir "${meta.sample}_fastqc"
+    fastqc -o ${meta.sample}_fastqc -f fastq ${fastq1} ${fastq2}
     """
 
 }
@@ -62,20 +64,20 @@ process TRIMMOMATIC {
     conda 'trimmomatic'
     input:
     path adap
-    tuple val(sample_id), path(reads)
+    tuple val(meta), path(fastq1), path(fastq2)
 
     output:
-    tuple val(sample_id), path("${sample_id}_R{1,2}_trimmed_paired.fastq")
+    tuple val(meta), path("${meta.sample}_R{1,2}_trimmed_paired.fastq")
 
     script:
     """
-    mkdir -p ${sample_id}_trimmed/
+    mkdir -p ${meta.sample}_trimmed/
 
     # Trimming
     trimmomatic PE \
-                ${reads[0]} ${reads[1]} \
-                ${sample_id}_R1_trimmed_paired.fastq ${sample_id}_R1_trimmed_unpaired.fastq \
-                ${sample_id}_R2_trimmed_paired.fastq ${sample_id}_R2_trimmed_unpaired.fastq \
+                ${fastq1} ${fastq2} \
+                ${meta.sample}_R1_trimmed_paired.fastq ${meta.sample}_R1_trimmed_unpaired.fastq \
+                ${meta.sample}_R2_trimmed_paired.fastq ${meta.sample}_R2_trimmed_unpaired.fastq \
                 ILLUMINACLIP:$adap:2:30:10 \
 
 """
@@ -87,15 +89,15 @@ process FASTQC_TRIM {
     publishDir "$projectDir/results/fastqc/trimmed", mode:'copy'
     conda 'fastqc'
     input:
-    tuple val(sample_id), path(trimreads)
+    tuple val(meta), path(trimreads)
 
     output:
-    path "${sample_id}_trimmed_fastqc"
+    path "${meta.sample}_trimmed_fastqc"
 
     script:
     """
-    mkdir "${sample_id}_trimmed_fastqc"
-    fastqc -o ${sample_id}_trimmed_fastqc -f fastq ${trimreads}
+    mkdir "${meta.sample}_trimmed_fastqc"
+    fastqc -o ${meta.sample}_trimmed_fastqc -f fastq ${trimreads}
     """
 
 }
@@ -123,11 +125,11 @@ process ALIGN {
     publishDir "$projectDir/results/align/${params.genome}", mode: 'copy'
     input:
     path index
-    tuple val(sample_id), path(trimreads)
+    tuple val(meta), path(trimreads)
 
     output:
-    path "${sample_id}_sorted.bam", emit: bamfile
-    path "${sample_id}_sorted.bam.bai"
+    path "${meta.sample}_sorted.bam", emit: bamfile
+    path "${meta.sample}_sorted.bam.bai"
 
 
     script:
@@ -135,18 +137,18 @@ process ALIGN {
 
     INDEX=`find -L BWAIndex/ -maxdepth 1 -name "*.amb" | sed 's/\\.amb\$//'`
     echo -e "\nAligning ..."
-    bwa mem  -M -t $task.cpus \$INDEX ${trimreads[0]} ${trimreads[1]} > ${sample_id}.sam
+    bwa mem  -M -t $task.cpus \$INDEX ${trimreads[0]} ${trimreads[1]} > ${meta.sample}.sam
     echo -e "\nConverting sam to bam ..."
-    samtools view -S -b ${sample_id}.sam > ${sample_id}.bam
+    samtools view -S -b ${meta.sample}.sam > ${meta.sample}.bam
     echo -e "\nSorting bam files ..."
-    samtools sort ${sample_id}.bam -o ${sample_id}_sorted.bam
+    samtools sort ${meta.sample}.bam -o ${meta.sample}_sorted.bam
     echo -e "\nIndexing bam files ..."
-    samtools index ${sample_id}_sorted.bam
+    samtools index ${meta.sample}_sorted.bam
     echo -e "\nFinished indexing"
     
-    # mkdir -p ${sample_id}_qualimap_results
+    # mkdir -p ${meta.sample}_qualimap_results
 
-    # qualimap bamqc -bam ${sample_id}_sorted.bam -outdir ${sample_id}_qualimap_results --paint-chromosome-limits --genome-gc-distr HUMAN --collect-overlap-pairs -outformat HTML
+    # qualimap bamqc -bam ${meta.sample}_sorted.bam -outdir ${meta.sample}_qualimap_results --paint-chromosome-limits --genome-gc-distr HUMAN --collect-overlap-pairs -outformat HTML
 
     """
 }
@@ -197,8 +199,9 @@ process QDNASEQSEX {
 
 workflow {
     Channel
-        .fromFilePairs(params.reads, checkIfExists: true)
+        .fromList(samplesheetToList(params.input, "assets/schema_input.json"))
         .set { read_pairs_ch }
+    read_pairs_ch.view()
     Channel
         .fromPath(params.index, checkIfExists: true)
         .set { index_ch }
