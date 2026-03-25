@@ -1,3 +1,11 @@
+> [!NOTE]
+> Highlights information that users should take into account, even when skimming.
+
+> [!IMPORTANT]
+> Crucial information necessary for users to succeed.
+
+> [!WARNING]
+> Critical content demanding immediate user attention due to potential risks.
 # GTN_sWGS
 ### Description
 This is a pipeline to obtain relative copy number from fastq files from sWGS. This pipeline is written using nextflow. I have aligned here to hg19 for ease, as hg38 bin annotations are not easily available for analysis with QDNASeq at this time.
