@@ -1,0 +1,19 @@
+{
+    "name": "swgs-relafier",
+    "homePage": "",
+    "repos": {
+        "https://github.com/nf-core/modules.git": {
+            "modules": {
+                "nf-core": {
+                    "mosdepth": {
+                        "branch": "master",
+                        "git_sha": "999b9db1d6b8bdc591e1168e183f4cc87d6606f9",
+                        "installed_by": [
+                            "modules"
+                        ]
+                    }
+                }
+            }
+        }
+    }
+}
