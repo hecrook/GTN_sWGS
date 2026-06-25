@@ -1,29 +1,37 @@
 include { samplesheetToList } from 'plugin/nf-schema'
+include { MOSDEPTH } from './modules/nf-core/mosdepth/'
 
 /*
  * Gestational sWGS input parameters
  */
 
-params.input = ""
-params.genome = ""
-if ( params.genome == "hg38" ) {
-        params.index = "/data/reference-data/iGenomes/Homo_sapiens/GATK/GRCh38/Sequence/BWAIndex/"
-    }
-else {
-    if ( params.genome == "hg19" ) {
-    params.index = "/data/reference-data/iGenomes/Homo_sapiens/Ensembl/GRCh37/Sequence/BWAIndex/"
-    }
-    else {
-        exit("""
-        ERROR!! 
-        Either no, or invalid genome has been specified. Please choose from options hg19 or hg38
-        """)
-    }
-}
-params.outdir = "$projectDir/results"
-params.adap = "$projectDir/bin/TruSeq3-PE-2.fa"
-params.binsize = "30"
+// params {
+//     // Path to input data in a samplesheet
+//     input: Path
+//     // Add fasta parameter for mosdepth
+//     fasta: Path
+//     // Output directory
+//     outdir: 'results'
+//     // Binsize for QDNAseq analysis
+//     binsize: 30
+//     // Path to adapters
+//     adap: Path
+//     // Include sex chromosomes in QDNAseq analysis
+//     sexChrIncl: false
+//     // Path to bedfile for mosdepth
+//     bedfile: Path
+//     // quantize_labels value for mosdepth
+//     quant_labels: ['10','20','30']
+//     }
+
+params.input = null
+params.fasta = null
+params.outdir = 'results'
+params.binsize = 30
+params.adap = null
 params.sexChrIncl = false
+params.bedfile = null
+params.quant_labels = ['10','20','30']
 
 
 log.info """\
@@ -35,6 +43,7 @@ log.info """\
     outdir       : ${params.outdir}
     sexchr?      : ${params.sexChrIncl}
     binsize      : ${params.binsize}
+    bedfile      : ${params.bedfile}
     """
     .stripIndent()
 
@@ -128,8 +137,8 @@ process ALIGN {
     tuple val(meta), path(trimreads)
 
     output:
-    path "${meta.sample}_sorted.bam", emit: bamfile
-    path "${meta.sample}_sorted.bam.bai"
+    tuple val(meta), path("${meta.sample}_sorted.bam"), emit: bamfile
+    tuple val(meta), path("${meta.sample}_sorted.bam.bai"), emit: bamindex
 
 
     script:
@@ -198,19 +207,66 @@ process QDNASEQSEX {
 }
 
 workflow {
-    Channel
-        .fromList(samplesheetToList(params.input, "assets/schema_input.json"))
-        .set { read_pairs_ch }
-    read_pairs_ch.view()
+    // Direct to index path based on the genome parameter
+    if ( params.genome == "hg38" ) {
+        params.index = "/data/reference-data/iGenomes/Homo_sapiens/GATK/GRCh38/Sequence/BWAIndex/"
+    }
+else {
+    if ( params.genome == "hg19" ) {
+        params.index = "/data/reference-data/iGenomes/Homo_sapiens/Ensembl/GRCh37/Sequence/BWAIndex/"
+    }
+    else {
+        exit("""
+        ERROR!! 
+        Either no, or invalid genome has been specified. Please choose from options hg19 or hg38
+        """)
+    }
+}
+    // Create channel for index path
     Channel
         .fromPath(params.index, checkIfExists: true)
         .set { index_ch }
+    // Create Channel for fastq1 and fastq2 from samplesheet and print in log (with .view)
+    // specifications for how these are read in are found in the schema_input.json
+    Channel
+        .fromList(samplesheetToList(params.input, "assets/schema_input.json"))
+        .set { read_pairs_ch }
+    // read_pairs_ch.view()
+    // Create channel for BEDFILE (needed for MOSDEPTH)
+    Channel
+        .fromPath(params.bedfile, checkIfExists: true)
+        .set { ch_bedfile }
+////////////////////////////////////////////////////
+    // Create Channel for FASTA
+    // Channel
+    //     .fromPath(params.fasta, checkIfExists: true)
+    //     .view()
+    //     .map {fasta -> [[id: params.genome] ,fasta]}
+    //     // .collect()
+    //     .set { ch_fasta }
+    Channel
+        .fromPath(params.fasta, checkIfExists: true)
+        .map {fasta -> [[id: params.genome] ,fasta]}
+        .collect()
+        .set { ch_fasta }
+    ch_fasta.view()
+/////////////////////////////////////////////////////
+    // ch_quant = Channel.of(params.quant_labels)
+    // FEED INITIAL CHANNELS INTO PROCESSES
     fastqc_raw_ch = FASTQC_RAW(read_pairs_ch)
     trim_ch = TRIMMOMATIC(params.adap, read_pairs_ch) 
     fastqc_trim_ch = FASTQC_TRIM(trim_ch)
     MULTIQC_TRIM(fastqc_raw_ch.mix(fastqc_trim_ch).collect())
     align_ch = ALIGN(index_ch.first(), trim_ch)
-    align_ch.bamfile.view()
+    // BUILD CHANNELS FOR MOSDEPTH
+    bam_bai_bed_ch = align_ch.bamfile
+        .join(align_ch.bamindex)
+        .combine(ch_bedfile)
+        // .map { meta, bam, bai, bed -> [meta, bam, bai, bed] }
+    // ch_fasta_single = Channel.fromPath(params.fasta, checkIfExists:true)
+    // ch_fasta_per_sample = bam_bai_bed_ch.combine(ch_fasta_single).map { t, fasta -> tuple(t[0], fasta) }
+    MOSDEPTH(bam_bai_bed_ch, ch_fasta, params.quant_labels)
+    // align_ch.bamfile.view()
     if ( params.genome == "hg19" ) {
         if ( params.sexChrIncl ) {
             QDNASEQSEX(align_ch.bamfile.collect(), params.binsize)
